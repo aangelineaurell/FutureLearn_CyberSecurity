@@ -1,39 +1,92 @@
-# FutureLearn_CyberSecurity
+---
+output:
+  html_document: default
+  pdf_document: default
+---
 
-Welcome to ProjectTemplate!
 
-This file introduces you to ProjectTemplate, but you should eventually replace
-the contents of this file with an introduction to your project. People who
-work with your data in the future will thank you for it, including your future
-self.
+######################
+## FutureLearn_CyberSecurity ##
+######################
 
-ProjectTemplate is an R package that helps you organize your statistical
-analysis projects. Since you're reading this file, we'll assume that you've
-already called `create.project()` to set up this project and all of its
-contents.
+# FutureLearn Cyber Security Retention Analysis
+# Author: Angeline Aurel Efendy
+# Date: 11th January 2026
 
-To load your new project, you'll first need to `setwd()` into the directory
-where this README file is located. Then you need to run the following two
-lines of R code:
+# This project analyses learner engagement, retention, and dropout
+# patterns in the FutureLearn Cyber Security course (Runs 6 and 7)
+# using the CRISP-DM framework.
 
-	library('ProjectTemplate')
-	load.project()
+# The analysis is aimed at course designers, educators, and platform
+# stakeholders who want to understand when learners disengage and
+# which factors are associated with early dropout in online courses.
 
-After you enter the second line of code, you'll see a series of automated
-messages as ProjectTemplate goes about doing its work. This work involves:
-* Reading in the global configuration file contained in `config`.
-* Loading any R packages you listed in the configuration file.
-* Reading in any datasets stored in `data` or `cache`.
-* Preprocessing your data using the files in the `munge` directory.
+# The main research questions are:
+# Cycle 1: When do learners drop out, and what are the overall
+#          engagement and retention patterns?
+# Cycle 2: What factors are associated with early dropout, based on
+#          leaving survey responses and weekly sentiment data?
 
-Once that's done, you can execute any code you'd like. For every analysis
-you create, we'd recommend putting a separate file in the `src` directory.
-If the files start with the two lines mentioned above:
+########################
+## DATA DESCRIPTION  ##
+########################
+# The project uses learning analytics data from the FutureLearn
+# Cyber Security course (Runs 6 and 7). The raw datasets include:
+# - Enrolment data (learner demographics and roles)
+# - Step activity logs (learner engagement over weeks)
+# - Team member data (used to exclude non-learners)
+# - Leaving survey responses (reasons for leaving)
+# - Weekly sentiment survey responses (experience ratings)
 
-	library('ProjectTemplate')
-	load.project()
+# Raw data are stored in the 'data' folder in CSV format.
+# Processed and analysis-ready datasets are written to
+# 'data/processed' by the munging scripts.
 
-You'll have access to all of your data, already fully preprocessed, and
-all of the libraries you want to use.
+###################
+## PROJECT SETUP ##
+###################
+# This project uses the ProjectTemplate system.
+# The user must have R and RStudio installed, along with the
+# following R packages:
+# tidyverse, dplyr, readr, knitr, kableExtra, ProjectTemplate
 
-For more details about ProjectTemplate, see http://projecttemplate.net
+# All raw data should be placed in the 'data' folder.
+# Project settings are controlled via the 'config/global.dcf' file.
+# The 'munge' folder contains scripts that clean and prepare the data.
+# If the munging scripts are unchanged, 'munging' can be set to FALSE
+# to speed up project loading.
+ 
+#######################
+## PROJECT EXECUTION ##
+#######################
+# To reproduce the analysis:
+# 1. Open the R Markdown file
+#    'FutureLearn_Cyber_Security_Retention_Analysis.Rmd'
+#    located in the 'reports' folder.
+# 2. Set the working directory to the 'reports' folder.
+# 3. Click 'Knit' in RStudio.
+
+# This will run the preprocessing pipeline, execute the analysis,
+# and produce the final report in HTML and PDF formats.
+ 
+###################
+## DIRECTORY MAP ##
+###################
+   # - cache
+   ##     Stores cached data loaded by ProjectTemplate.
+   # - config
+   ##     Contains global.dcf for project configuration.
+   # - data
+   ##     Raw course data and processed outputs.
+   # - data/processed
+   ##     Cleaned and aggregated datasets for analysis.
+   # - munge
+   ##     R scripts for data loading, cleaning, and feature creation.
+   # - reports
+   ##     R Markdown file and knitted report outputs.
+   # - logs
+   ##     (Unused)
+   # - src
+   ##     (Unused)
+   # - tests
+   ##     (Unused)

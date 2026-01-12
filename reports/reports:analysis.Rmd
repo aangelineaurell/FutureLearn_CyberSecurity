@@ -1,0 +1,458 @@
+---
+title: "FutureLearn Cyber Security Retention Analysis"
+author: "Angeline Aurel Efendy"
+date: "2026-01-10"
+output:
+  pdf_document:
+    includes:
+      in_header: preamble.tex
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir= normalizePath('..'))
+
+library(tidyverse)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+```
+
+```{r load_project, include=FALSE}
+library(ProjectTemplate)
+load.project()
+```
+
+```{r helpers, include=FALSE}
+if (!("run" %in% names(retention_data))) retention_data <- retention_data %>% mutate(run = 6)
+if (!("run" %in% names(step_activity))) step_activity <- step_activity %>% mutate(run = 6)
+
+runs_used <- sort(unique(retention_data$run))
+run_label <- paste(runs_used, collapse = ", ")
+```
+
+
+# Introduction
+
+This report describes the use of the Cross-Industry Standard Process for Data Mining (CRISP-DM) on learner data taken from the Future Learn Cyber Security course, focusing on Runs 6 and 7. Two cycles of the CRISP-DM process were carried out to identify patterns of learner engagement, retention, and dropout which are informative for those involved in managing and improving the course.
+
+The stakeholders for this analysis comprise the Future Learn platform team, course educators and learning designers, as well as educational institutions that utilize learning analytics for course evaluation. Engagement and retention of learners are crucial in online education, as high enrollment does not ensure excellent learning outcome. Courses with high early dropout rates fail to meet educational objectives despite initial uptake. 
+
+The analysis focuses on timing of disengagement and factors associated to early dropout. The purpose is to examine learner experience in the Cyber Security  course through combined behavioral engagement data and survey feedback, and relate these to retention and disengagement patterns.
+
+The specific research question to be examined are: 
+
+> **"Cycle 1: What are the patterns of participant engagement and retention in the Future Learn Cyber Security course (Runs 6 & 7), and at which stage or week do most participants drop out?**"
+
+> **"Cycle 2: What factors are associated with early dropout, based on learners’ stated reasons in the leaving survey (individual level), and how do weekly sentiment patterns correlate with dropout rates at the aggregate level (Runs 6 & 7)?**"
+
+This is of interest because identifying when learners disengage and the factors associated with early dropout, can help stakeholders improve course design and learner support. This CRISP-DM analysis is successful if it pinpoints the key dropout weeks and the main reasons/sentiment patterns linked to early dropout, or shows that dropout is evenly spread and not clearly associated with these factors.
+
+# CRISP-DM Cycle 1 - Engagement & Retention
+
+## Business Understanding
+
+The stakeholders for this analysis are the FutureLearn platform team and the Cyber Security course educators (and institutions using the course data for evaluation). This investigation helps them by showing where learners disengage and drop out, enabling improvements to onboarding, workload, and course design in order to increase retention. 
+
+The primary goal of this first CRISP-DM cycle is to measure patterns of learner engagement and retention and to identify the course weeks with the largest dropout. The insights from this cycle provide the foundation for a second CRISP-DM cycle, which explores potential explanatory factors associated with early dropout.
+
+## Data Understanding
+
+This project uses learning analytics data from the Future Learn Cyber Security course (Runs 6 & 7). A “run” refers to a single delivery of the course to a cohort of learners at a specific point in time. While the course structure is largely consistent across runs, each run contains a distinct cohort of learners. In addition, learner identifiers are only unique within a given run, which requires analyses to distinguish between runs when combining data across course deliveries.
+
+The datasets encompass enrolments (learner demographics and enrolment details), step activity (logs of the first visits and completion of learning steps), question responses (quiz performance), video statistics (viewing behaviour), and two optional feedback sources: the leaving survey (reasons for leaving) and the weekly sentiment survey (ratings of weekly experiences). The data are longitudinal, indicating they monitor learner activity over time, and several tables contain multiple rows per learner as each learner can interact with numerous stages, quizzes, or videos.
+
+There are some expected data quality limitations. Survey datasets are incomplete by design because participation is optional, so many learners have missing leaving reasons or sentiment responses. Some timestamp fields may be missing for certain activities, and demographic variables may include missing values or “Unknown” entries. In addition, the raw data include non-learner accounts (e.g., educators/mentors listed in the team-members file) that must be filtered out to avoid bias when estimating engagement and retention patterns.
+
+## Data Preparation
+
+Data preparation was carried out using a series of scripts in the munge/ directory to ensure that the analysis was reproducible. All raw datasets from Runs 6 and 7 were first loaded from the data/ folder and combined, with an additional variable indicating the course run. Timestamp variables in the activity logs were converted to appropriate date–time formats where required. Because the raw data include accounts belonging to course staff (such as educators and mentors), these non-learner accounts were identified using the team-members data and removed on a per-run basis to avoid bias in engagement and retention estimates.
+
+Learner activity data were then aggregated to the learner level within each run.  From the step activity logs, several derived variables were created, including whether a learner started the course, the total number of learning steps completed, and the last week in which any step was completed. These derived features were combined with cleaned enrolment data to produce a single record per learner. Finally, a weekly drop-off summary was created by counting the number of learners whose last completed activity occurred in each week of the course. These transformations produced clean, analysis-ready datasets that support the investigation of engagement, retention, and dropout patterns.
+
+```{r engagement_retention_metrics, echo=FALSE}
+if (!("run" %in% names(retention_data))) retention_data <- retention_data %>% mutate(run = 6)
+if (!("run" %in% names(step_activity))) step_activity <- step_activity %>% mutate(run = 6)
+
+runs_used <- sort(unique(retention_data$run))
+run_label <- paste(runs_used, collapse = ", ")
+
+weeks_by_run <- step_activity %>%
+  group_by(run) %>%
+  summarise(total_weeks = max(week_number, na.rm = TRUE), .groups = "drop")
+
+# --- Metrics per run ---
+metrics_by_run <- retention_data %>%
+  left_join(weeks_by_run, by = "run") %>%
+  mutate(
+    last_week = ifelse(is.na(max_week_completed), 0, max_week_completed),
+    completed_course = last_week == total_weeks,
+    early_dropout = started_course & last_week <= 1
+  ) %>%
+  group_by(run) %>%
+  summarise(
+    total_learners = n(),
+    learners_started = sum(started_course, na.rm = TRUE),
+    completion_rate = sum(completed_course, na.rm = TRUE) / total_learners,
+    early_dropout_rate = ifelse(
+      sum(started_course, na.rm = TRUE) == 0,
+      NA_real_,
+      sum(early_dropout, na.rm = TRUE) / sum(started_course, na.rm = TRUE)
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    run = as.character(run),  
+    completion_rate = scales::percent(completion_rate),
+    early_dropout_rate = scales::percent(early_dropout_rate)
+  )
+
+# --- (combine runs) ---
+metrics_overall <- retention_data %>%
+  left_join(weeks_by_run, by = "run") %>%
+  mutate(
+    last_week = ifelse(is.na(max_week_completed), 0, max_week_completed),
+    completed_course = last_week == total_weeks,
+    early_dropout = started_course & last_week <= 1
+  ) %>%
+  summarise(
+    run = "Overall",
+    total_learners = n(),
+    learners_started = sum(started_course, na.rm = TRUE),
+    completion_rate = sum(completed_course, na.rm = TRUE) / total_learners,
+    early_dropout_rate = ifelse(
+      sum(started_course, na.rm = TRUE) == 0,
+      NA_real_,
+      sum(early_dropout, na.rm = TRUE) / sum(started_course, na.rm = TRUE)
+    )
+  ) %>%
+  mutate(
+    completion_rate = scales::percent(completion_rate),
+    early_dropout_rate = scales::percent(early_dropout_rate)
+  )
+
+dplyr::bind_rows(metrics_by_run, metrics_overall) %>%
+  kable(
+    caption = paste0("Key engagement and retention metrics (Runs: ", run_label, ")")
+  ) %>%
+  kable_styling(full_width = FALSE)
+```
+
+## Modelling
+
+A retention model is applied to the learner activity data to estimate the proportion of learners who remain active across course weeks. The model allows retention trajectories to be compared between Runs 6 and 7 of the FutureLearn Cyber Security course. The resulting retention curves are shown in Figure 1.
+
+```{r retention_curve, echo=FALSE, fig.cap="Retention curve (proportion of starters retained) by week and run", fig.pos='H'}
+retention_line <- retention_data %>%
+  filter(started_course) %>%
+  mutate(last_week = ifelse(is.na(max_week_completed), 0, max_week_completed)) %>%
+  group_by(run) %>%
+  group_modify(~{
+    df <- .x
+    total_started <- nrow(df)
+
+    max_w <- max(df$last_week, na.rm = TRUE)
+
+    tibble(week = 0:max_w) %>%
+      mutate(
+        retained = map_int(
+          week,
+          ~ sum(df$last_week >= .x)
+        ),
+        retained_rate = retained / total_started
+      )
+  }) %>%
+  ungroup()
+
+ggplot(retention_line, aes(x = week, y = retained_rate, colour = factor(run))) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Week", y = "Retained (share of starters)", colour = "Run") +
+  theme_minimal()
+```
+\FloatBarrier
+
+The retention pattern across course weeks is shown in Figure 1, representing  the proportion of learners who started the course and remained active each week, plotted separately for Runs 6 and 7. In both runs, retention decline sharply during the first week, suggesting that disengagement mostly occurs at the beginning of the course. Subsequent to this initial decline, the curves continue to decline but at a slower rate, indicating that learners who persist beyond the early stage are more likely to continue. Overall engagement patterns are generally similar between the two runs. However, Run 7 shows slightly higher retention than Run 6 at most weekly stages, indicating a small difference in early retention behaviour between the cohorts.
+
+```{r dropoff_bar, echo=FALSE, fig.cap="Drop-off distribution by last completed week, by run", fig.pos='H'}
+dropoff_plot <- retention_data %>%
+  filter(started_course) %>%
+  mutate(last_week = ifelse(is.na(max_week_completed), 0, max_week_completed)) %>%
+  count(run, last_week, name = "n_learners") %>%
+  arrange(run, last_week)
+
+ggplot(dropoff_plot, aes(x = factor(last_week), y = n_learners)) +
+  geom_col() +
+  facet_wrap(~ run, scales = "free_y") +
+  labs(x = "Last completed week", y = "Number of learners") +
+  theme_minimal()
+```
+\FloatBarrier
+
+Figure 2 summarizes learner drop-off by identifying the final week completed by each learner, presented separately for Runs 6 and 7. In both runs, disengagement is heavily concentrated in the earliest stage of the course, particularly in Weeks 0 and 1, with substantially fewer learners continuing into later weeks. The modal dropout point differs slightly by cohort, with Run 6 showing the largest drop occurs at Week 0, whereas in Run 7 it occurs at week 1. This highlights that the early weeks as the key “critical period” that should be prioritised for course redesign and learner support.
+
+```{r funnel_plot, echo=FALSE, fig.cap="Learner funnel across milestones, by run", fig.pos='H'}
+weeks_by_run <- step_activity %>%
+  group_by(run) %>%
+  summarise(total_weeks = max(week_number, na.rm = TRUE), .groups = "drop")
+
+funnel <- retention_data %>%
+  left_join(weeks_by_run, by = "run") %>%
+  mutate(last_week = ifelse(is.na(max_week_completed), 0, max_week_completed)) %>%
+  group_by(run) %>%
+  summarise(
+    Enrolled = n(),
+    Started = sum(started_course),
+    `Reached Week 2+` = sum(started_course & last_week >= 2),
+    `Reached Week 3+` = sum(started_course & last_week >= 3),
+    Completed = sum(started_course & last_week == total_weeks),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(-run, names_to = "stage", values_to = "n") %>%
+  group_by(run) %>%
+  mutate(stage = factor(stage, levels = stage)) %>%
+  ungroup()
+
+ggplot(funnel, aes(x = stage, y = n)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ run, scales = "free_x") +
+  labs(x = "", y = "Number of learners") +
+  theme_minimal()
+```
+\FloatBarrier
+
+
+**Idea:** show the learner “flow” from *Enrolled → Started → Reached Week 2 → Reached Week 3 → Completed*  
+This **is more engaging** and easier for non-technical audiences to understand. 
+
+Figure 3 presents a learner funnel that illustrates how participation decreases across key milestones, shown separately for Runs 6 and 7. In both runs, the largest reduction occurs between enrolment and the start of the course, signifying that numerous learners register but fail to engage actively. Participation decreases drastically by Week 2 among those who started. This supports the findings that disengagement mostly occurs in the early course rather than progressively over time, meaning that improvements to onboarding and the structure of the initial week may have stronger impact on retention.
+
+```{r boxplot_steps_by_week, echo=FALSE, fig.cap="Steps completed distribution by last completed week (starters), by run", fig.pos='H'}
+box <- retention_data %>%
+  mutate(last_week = ifelse(is.na(max_week_completed), 0, max_week_completed)) %>%
+  filter(started_course)
+
+ggplot(box, aes(x = factor(last_week), y = steps_completed)) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  facet_wrap(~ run) +
+  labs(x = "Last completed week", y = "Steps completed") +
+  theme_minimal()
+```
+\FloatBarrier
+
+
+**Idea:** for each last_week, examine distribution of steps_completed.  
+This shows “what engagement looks like at a given week”.
+
+Figure 4 compares the distribution of completed learning steps by learners based on their final week activity, shown separately for Runs 6 and 7. In both runs, learners who drop out earlier complete substantially fewer number of steps, while learners who remain active into later weeks show higher levels of engagement. The median number of completed steps increases monotonically with the last completed week, indicating a strong association between engagement intensity and retention. In relation to the research question, this reinforces the finding that disengagement emerges very early in the course and that higher engagement is closely linked to continued participation.
+
+> The concentration of drop-off in the earliest weeks suggests that the main retention problem occurs early in the learner journey. This motivates the second CRISP-DM cycle, which explores potential explanations for early dropout using leaving survey responses (individual-level) and weekly sentiment ratings (aggregate-level).
+
+
+The retention curve in Figure 1 shows a steep early decline: only `r scales::percent(retention_line$retained_rate[retention_line$week == 2])` of learners who started remain active up to Week 2, after which the curve flattens, suggesting that learners who pass the initial stage are more likely to continue. Consistent with this, the drop-off distribution in Figure 2 indicates that disengagement is most concentrated at Week `r dropoff_plot$last_week[which.max(dropoff_plot$n_learners)]`, which represents `r scales::percent(max(dropoff_plot$n_learners) / sum(dropoff_plot$n_learners))` of all drop-outs among starters. Engagement also differs sharply by drop-off timing (Figure4): learners who leave by Week 1 complete a median of `r median(box$steps_completed[box$last_week <= 1], na.rm = TRUE)` steps, compared with `r median(box$steps_completed[box$last_week > 1], na.rm = TRUE)` steps for those who persist beyond Week 1.
+
+## Evaluation
+
+The exploratory modelling shows that engagement and retention decline sharply in the early weeks of the Cyber Security course, with the highest drop-off occurring within Week 0–1. This analysis therefore answers the Cycle 1 question by identifying the critical dropout stage, but it does not explain why learners leave, which motivates Cycle 2.
+
+# CRISP-DM Cycle 2
+
+## Business Understanding
+
+The business understanding remains largely unchanged from the first CRISP-DM cycle. The same stakeholders namely the FutureLearn platform team and Cyber Security course educators require insight into learner engagement and retention in order to improve course design and learner support.
+
+Based on the findings from Cycle 1, which indicated that learner dropout mainly occurs in the earliest weeks of the course across both Runs 6 and 7, while cycle 2 focusses on clarifying the reasons for early learner disengagement. The objective of this cycle is to discover factors associated with early dropout by analysing learner-reported reasons for leaving and weekly sentiment feedback, in order to produce actionable insights that can inform targeted interventions throughout the early stages of the course.
+
+## Data Understanding
+
+This CRISP-DM cycle uses the same core learner activity data as Cycle 1, supplemented with two feedback datasets: the leaving survey (individual-level) and the weekly sentiment survey (aggregate-level), for Runs 6 and 7.
+
+Not all learners completed the leaving survey, so missing values in survey-related variables are expected and reflect the optional nature of the feedback. Weekly sentiment data do not include learner identifiers and are therefore analysed at the weekly aggregate level rather than at the individual level. As data quality and structure were already assessed in Cycle 1, no additional exploratory data analysis is required before proceeding to modelling.
+
+## Data Preparation
+
+Data preparation for the second CRISP-DM cycle builds directly on the derived variables created in Cycle 1. Learners were classified into early and later dropout groups based on the last week in which they completed any course activity.
+
+Leaving survey responses were then joined to the learner-level retention data and summarised by dropout group to explore differences in stated reasons for leaving. Weekly sentiment responses were aggregated by week and combined with weekly dropout counts to examine whether changes in learner sentiment align with observed dropout patterns across Runs 6 and 7. No additional data cleaning or transformation was required beyond these steps.
+
+## Modelling
+
+
+In the second CRISP-DM cycle, descriptive modelling is applied to explore factors associated with early dropout in the Cyber Security course. Two complementary approaches are used: (1) analysis of learner-reported leaving reasons at the individual level, and (2) analysis of weekly sentiment trends in relation to dropout patterns at the aggregate level. These models build directly on the findings from Cycle 1, which identified that dropout is heavily concentrated in the early weeks of the course.
+
+```{r cycle2_build_individual, echo=FALSE}
+cycle2_individual <- retention_data %>%
+  mutate(
+    last_week = ifelse(is.na(max_week_completed), 0, max_week_completed),
+    early_dropout = ifelse(started_course & last_week <= 1, "Early",
+                           ifelse(started_course, "Later", NA))
+  ) %>%
+  left_join(leaving_survey, by = c("run", "learner_id"))
+```
+
+```{r cycle2_leaving_reason_table, echo=FALSE}
+leaving_reason_by_dropout <- cycle2_individual %>%
+  filter(!is.na(leaving_reason), !is.na(early_dropout)) %>%
+  count(early_dropout, leaving_reason, sort = TRUE)
+
+kable(
+  leaving_reason_by_dropout,
+  caption = "Leaving reasons by dropout group (Early vs Later), Runs 6 and 7"
+) %>%
+  kable_styling(full_width = FALSE)
+```
+
+```{r cycle2_leaving_reason_plot, echo=FALSE, fig.cap="Figure 5: Top leaving reasons by dropout group (Early vs Later)", fig.pos='H',fig.width=8, fig.height=5}
+top_reasons <- leaving_reason_by_dropout %>%
+  group_by(early_dropout) %>%
+  slice_max(order_by = n, n = 5) %>%
+  ungroup()
+
+ggplot(top_reasons, aes(x = reorder(leaving_reason, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ early_dropout, scales = "free_y") +
+  labs(
+    title = "Top leaving reasons by dropout group",
+    x = "Leaving reason",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+\FloatBarrier
+
+Figure 5 presents the most common leaving reasons reported by learners, split between early dropouts (Weeks 0–1) and later dropouts (after Week 1). For early dropouts, dominant reason reported as “not enough time”, followed by expectations mismatch and underestimation of the time required. Pattern indicates early disengagement driven mainly by workload expectations and limited time availability, not by dissatisfaction with specific course content.
+
+In contrast, later dropout reasons are more varied, including  “Other” or no stated reason. This indicates greater role of individual or situational factors at later stages, compared to consistent time pressure effects in early dropouts. Overall, this supports the interpretation that early dropout is closely tied to onboarding and initial workload expectations.
+
+```{r cycle2_build_weekly, echo=FALSE}
+cycle2_weekly <- retention_data %>%
+  filter(started_course) %>%
+  mutate(last_week = ifelse(is.na(max_week_completed), 0, max_week_completed)) %>%
+  count(run, last_week, name = "n_learners") %>%
+  left_join(
+    weekly_sentiment %>%
+      group_by(run, week_number) %>%
+      summarise(avg_sentiment = mean(experience_rating, na.rm = TRUE), .groups = "drop"),
+    by = c("run", "last_week" = "week_number")
+  ) %>%
+  mutate(run = factor(run))
+
+cycle2_weekly_sent <- cycle2_weekly %>%
+  filter(!is.na(avg_sentiment))
+```
+
+
+```{r cycle2_sentiment_plot, echo=FALSE, fig.cap="Figure 6: Average weekly sentiment by run", fig.pos='H'}
+ggplot(cycle2_weekly_sent, aes(x = last_week, y = avg_sentiment, group = run)) +
+  geom_line(aes(linetype = run), linewidth = 1) +
+  geom_point(aes(colour = run), size = 3) +
+  scale_linetype_manual(values = c("6" = "solid", "7" = "dashed")) +
+  labs(
+    title = "Average weekly sentiment by run",
+    x = "Week",
+    y = "Average experience rating",
+    colour = "Run",
+    linetype = "Run"
+  ) +
+  theme_minimal()
+```
+\FloatBarrier
+
+Figure 6 shows the average weekly learner sentiment for Runs 6 and 7. Overall pattern suggests mild decline in learner experience over time, particularly beyond early weeks. Consistent with Cycle 1 retention results showing disengagement before later stages.
+
+Although sentiment differences between runs are small. Overall pattern suggests mild decline in learner experience over time, particularly beyond early weeks. Consistent with Cycle 1 retention results showing disengagement before later stages.
+
+```{r cycle2_dropoff_counts_plot, echo=FALSE, fig.cap="Figure 7: Weekly drop-off counts by run", fig.pos='H'}
+dropoff_by_week <- retention_data %>%
+  filter(started_course) %>%
+  mutate(last_week = ifelse(is.na(max_week_completed), 0, max_week_completed)) %>%
+  count(run, last_week, name = "dropoffs") %>%
+  mutate(run = factor(run))
+
+ggplot(dropoff_by_week, aes(x = factor(last_week), y = dropoffs, fill = run)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Weekly drop-off counts by run",
+    x = "Week (last active week)",
+    y = "Number of learners who dropped out",
+    fill = "Run"
+  ) +
+  theme_minimal()
+```
+\FloatBarrier
+
+Figure 7 illustrates weekly dropout counts by run. Highest dropout in Weeks 0 and 1 for both runs. Substantially fewer exits in later weeks. Run 6 shows higher early dropout volume, but distribution shape is similar across runs.
+
+This reinforces the conclusion that dropout concentrated at course start. The early stages of the course signify a crucial risk period for learner disengagement.
+
+```{r cycle2_dropoff_prop_plot, echo=FALSE, fig.cap="Figure 8: Weekly drop-off distribution by run (proportions)", fig.pos='H'}
+cycle2_weekly_prop <- cycle2_weekly %>%
+  group_by(run) %>%
+  mutate(dropoff_prop = n_learners / sum(n_learners)) %>%
+  ungroup()
+
+dropoff_mean <- cycle2_weekly_prop %>%
+  group_by(last_week) %>%
+  summarise(
+    mean_prop = mean(dropoff_prop, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot() +
+  # Bars per run (proportion)
+  geom_col(
+    data = cycle2_weekly_prop,
+    aes(x = factor(last_week), y = dropoff_prop, fill = factor(run)),
+    position = "dodge"
+  ) +
+  # Mean drop-off line (relationship)
+  geom_line(
+    data = dropoff_mean,
+    aes(x = factor(last_week), y = mean_prop, group = 1),
+    colour = "black",
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  geom_point(
+    data = dropoff_mean,
+    aes(x = factor(last_week), y = mean_prop),
+    colour = "black",
+    size = 2
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Weekly drop-off distribution by run",
+    subtitle = "Bars show proportion per run; dashed line shows mean across Runs 6 and 7",
+    x = "Week",
+    y = "Share of drop-offs",
+    fill = "Run"
+  ) +
+  theme_minimal()
+```
+\FloatBarrier
+
+Figure 8 illustrates the proportionate distribution of weekly dropout by run, with a dashed line denoting the average proportion for Runs 6 and 7. The data indicates that a large proportion of all dropouts occurs within the first two weeks, even after accounting for variations in cohort size. The average trend exhibits a sharp decline after Week 1, followed by a minor increase in subsequent weeks.
+
+Combined with the sentiment results, this indicates that initial negative or unfulfilled expectations may align with the timeframe in which the majority of learners decide to disengage, regardless of sentiment data are only available for a limited number of weeks.
+
+## Evaluation
+
+Following completion of the second CRISP-DM cycle, the research question has been addressed. The analysis shows that early dropout is strongly associated with learner-reported time constraints and mismatched expectations, based on individual leaving survey responses. At the aggregate level, sentiment trends and dropout distributions both indicate concentration of disengagement in the early weeks.
+
+## Deployment
+
+The main takeaway from this project is that learner dropout in the Cyber Security course concentrated in the earliest weeks 0-1 across Runs 6 and 7. At the individual level, early dropout linked mainly to time pressure and workload expectations. However, at the aggregate level, weekly sentiment shows small variation, but the overall pattern is consistent with the early dropout concentration identified in Cycle 1.
+
+These findings should be communicated to FutureLearn stakeholders and course designers teams to support targeted interventions in the early stage, such as stronger onboarding guidance, clearer workload communication pre-start, and additional guidance or reminders in week 1. Implementing and monitoring these changes in future runs recommended to improve retention and learner experience. 
+
+# Final conclusions
+
+In summary, the analysis answers the research questions through two CRISP-DM cycles using learner data from Runs 6 and 7. Cycle 1 demonstrates that disengagement is concentrated in the earliest course stage (Weeks 0–1), with only a small proportion of learners continuing into later weeks. Cycle 2 provided explanatory insight for early dropout as leaving survey responses indicate that early dropouts most commonly cite time constraints and workload expectations, while weekly sentiment patterns exhibit slight fluctuations that align broadly with the concentration of early dropouts. Further studies should assess targeted interventions focused on the Week 1 learner experience (e.g., improved workload communication, onboarding support, pacing guidance) and analyse their impact in future runs. Whenever possible, more comprehensive learner-level indicators (e.g., step completion intensity, quiz attempts, and video engagement during the first week) should be included to better identify at-risk learners and support early retention.
+
+
+
+
